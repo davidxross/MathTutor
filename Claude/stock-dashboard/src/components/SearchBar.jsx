@@ -101,7 +101,7 @@ export default function SearchBar() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-          placeholder="Search stocks (e.g., AAPL, TSLA)"
+          placeholder="Search stocks (e.g., AAPL, SHOP.TO)"
           className="w-full px-4 py-2 pr-10 text-slate-900 dark:text-white bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent placeholder-slate-400 dark:placeholder-slate-500"
         />
         <button
@@ -168,6 +168,11 @@ export default function SearchBar() {
                 <span className="font-medium text-slate-900 dark:text-white">
                   {item.symbol}
                 </span>
+                {item.exchange && item.exchange !== 'US' && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded">
+                    {item.exchange}
+                  </span>
+                )}
                 <span className="ml-2 text-sm text-slate-500 dark:text-slate-400">
                   {item.description}
                 </span>

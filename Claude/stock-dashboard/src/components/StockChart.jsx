@@ -19,13 +19,13 @@ function formatDate(timestamp) {
   });
 }
 
-function CustomTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label, currencySymbol }) {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white dark:bg-slate-800 p-3 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700">
         <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
         <p className="text-lg font-bold text-slate-900 dark:text-white">
-          ${payload[0].value.toFixed(2)}
+          {currencySymbol}{payload[0].value.toFixed(2)}
         </p>
       </div>
     );
@@ -86,6 +86,7 @@ export default function StockChart() {
   }
 
   const selectedStockData = stockData[selectedStock];
+  const currencySymbol = selectedStockData?.currency === 'CAD' ? 'C$' : '$';
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-lg shadow border border-slate-200 dark:border-slate-700 p-6">
@@ -106,7 +107,7 @@ export default function StockChart() {
               }`}
             >
               30-day change: {priceChange.isPositive ? '+' : ''}
-              ${priceChange.change.toFixed(2)} ({priceChange.isPositive ? '+' : ''}
+              {currencySymbol}{priceChange.change.toFixed(2)} ({priceChange.isPositive ? '+' : ''}
               {priceChange.changePercent.toFixed(2)}%)
             </p>
           )}
@@ -166,9 +167,9 @@ export default function StockChart() {
                 tick={{ fontSize: 12, fill: darkMode ? '#94a3b8' : '#64748b' }}
                 tickLine={{ stroke: darkMode ? '#475569' : '#cbd5e1' }}
                 axisLine={{ stroke: darkMode ? '#475569' : '#cbd5e1' }}
-                tickFormatter={(value) => `$${value}`}
+                tickFormatter={(value) => `${currencySymbol}${value}`}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip currencySymbol={currencySymbol} />} />
               <Line
                 type="monotone"
                 dataKey="price"

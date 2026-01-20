@@ -28,6 +28,7 @@ export default function StockCard({ symbol, data }) {
   }
 
   const isPositive = data.change >= 0;
+  const currencySymbol = data.currency === 'CAD' ? 'C$' : '$';
 
   return (
     <div
@@ -51,9 +52,16 @@ export default function StockCard({ symbol, data }) {
             />
           )}
           <div>
-            <h3 className="font-bold text-lg text-slate-900 dark:text-white">
-              {symbol}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-lg text-slate-900 dark:text-white">
+                {symbol}
+              </h3>
+              {data.exchange && data.exchange !== 'US' && (
+                <span className="px-1.5 py-0.5 text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded">
+                  {data.exchange}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-slate-500 dark:text-slate-400 truncate max-w-[150px]">
               {data.name}
             </p>
@@ -76,7 +84,7 @@ export default function StockCard({ symbol, data }) {
       <div className="mt-4">
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold text-slate-900 dark:text-white">
-            ${data.price?.toFixed(2)}
+            {currencySymbol}{data.price?.toFixed(2)}
           </span>
           <span
             className={`text-sm font-medium ${
@@ -93,25 +101,25 @@ export default function StockCard({ symbol, data }) {
           <div>
             <span className="text-slate-500 dark:text-slate-400">High: </span>
             <span className="text-slate-700 dark:text-slate-300">
-              ${data.high?.toFixed(2)}
+              {currencySymbol}{data.high?.toFixed(2)}
             </span>
           </div>
           <div>
             <span className="text-slate-500 dark:text-slate-400">Low: </span>
             <span className="text-slate-700 dark:text-slate-300">
-              ${data.low?.toFixed(2)}
+              {currencySymbol}{data.low?.toFixed(2)}
             </span>
           </div>
           <div>
             <span className="text-slate-500 dark:text-slate-400">Open: </span>
             <span className="text-slate-700 dark:text-slate-300">
-              ${data.open?.toFixed(2)}
+              {currencySymbol}{data.open?.toFixed(2)}
             </span>
           </div>
           <div>
             <span className="text-slate-500 dark:text-slate-400">Prev: </span>
             <span className="text-slate-700 dark:text-slate-300">
-              ${data.prevClose?.toFixed(2)}
+              {currencySymbol}{data.prevClose?.toFixed(2)}
             </span>
           </div>
         </div>
@@ -124,7 +132,7 @@ export default function StockCard({ symbol, data }) {
               </svg>
               <span className="text-slate-500 dark:text-slate-400">Dividend:</span>
               <span className="text-slate-700 dark:text-slate-300">
-                ${data.dividend.amount?.toFixed(2)}
+                {currencySymbol}{data.dividend.amount?.toFixed(2)}
               </span>
               <span className="text-slate-400 dark:text-slate-500">|</span>
               <span className="text-slate-500 dark:text-slate-400">Ex:</span>

@@ -64,6 +64,10 @@ export async function getCompanyProfile(symbol) {
     throw new Error('Company not found');
   }
 
+  // Add currency based on exchange
+  const isCanadian = symbol.endsWith('.TO') || symbol.endsWith('.V');
+  data.currency = isCanadian ? 'CAD' : (data.currency || 'USD');
+
   setCache(cacheKey, data);
   return data;
 }
@@ -156,12 +160,16 @@ export async function searchSymbols(query) {
   const url = `${BASE_URL}/search?q=${query}&token=${API_KEY}`;
   const data = await fetchWithRetry(url);
 
+  // Include US and Canadian stocks (TSX symbols end with .TO)
   const results = (data.result || [])
     .filter(item => item.type === 'Common Stock')
-    .slice(0, 10)
+    .slice(0, 15)
     .map(item => ({
       symbol: item.symbol,
       description: item.description,
+      // Identify Canadian stocks by exchange suffix
+      exchange: item.symbol.endsWith('.TO') ? 'TSX' :
+                item.symbol.endsWith('.V') ? 'TSXV' : 'US',
     }));
 
   setCache(cacheKey, results);
@@ -169,9 +177,11 @@ export async function searchSymbols(query) {
 }
 
 export async function getStockData(symbol) {
+  const isCanadian = symbol.endsWith('.TO') || symbol.endsWith('.V');
+
   const [quote, profile, dividend] = await Promise.all([
     getQuote(symbol),
-    getCompanyProfile(symbol).catch(() => ({ name: symbol })),
+    getCompanyProfile(symbol).catch(() => ({ name: symbol, currency: isCanadian ? 'CAD' : 'USD' })),
     getDividends(symbol).catch(() => null),
   ]);
 
@@ -187,5 +197,7 @@ export async function getStockData(symbol) {
     open: quote.o,
     prevClose: quote.pc,
     dividend,
+    currency: profile.currency || (isCanadian ? 'CAD' : 'USD'),
+    exchange: isCanadian ? (symbol.endsWith('.V') ? 'TSXV' : 'TSX') : 'US',
   };
 }

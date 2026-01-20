@@ -73,27 +73,77 @@ export async function getStockCandles(symbol, days = 30) {
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
-  const to = Math.floor(Date.now() / 1000);
-  const from = to - (days * 24 * 60 * 60);
+  const period1 = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+  const period2 = Math.floor(Date.now() / 1000);
 
-  const url = `${BASE_URL}/stock/candle?symbol=${symbol}&resolution=D&from=${from}&to=${to}&token=${API_KEY}`;
-  const data = await fetchWithRetry(url);
+  // Use Yahoo Finance API via CORS proxy (free, no API key required)
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
+  const url = `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`;
 
-  if (data.s === 'no_data') {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+
+    const chart = data.chart?.result?.[0];
+    if (!chart || !chart.timestamp) {
+      return { timestamps: [], closes: [] };
+    }
+
+    const result = {
+      timestamps: chart.timestamp || [],
+      closes: chart.indicators?.quote?.[0]?.close || [],
+      opens: chart.indicators?.quote?.[0]?.open || [],
+      highs: chart.indicators?.quote?.[0]?.high || [],
+      lows: chart.indicators?.quote?.[0]?.low || [],
+      volumes: chart.indicators?.quote?.[0]?.volume || [],
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (error) {
+    console.error('Error fetching candles:', error);
     return { timestamps: [], closes: [] };
   }
+}
 
-  const result = {
-    timestamps: data.t || [],
-    closes: data.c || [],
-    opens: data.o || [],
-    highs: data.h || [],
-    lows: data.l || [],
-    volumes: data.v || [],
-  };
+export async function getDividends(symbol) {
+  const cacheKey = `dividends-${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
 
-  setCache(cacheKey, result);
-  return result;
+  const today = new Date();
+  const from = today.toISOString().split('T')[0];
+  const toDate = new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000);
+  const to = toDate.toISOString().split('T')[0];
+
+  const url = `${BASE_URL}/stock/dividend?symbol=${symbol}&from=${from}&to=${to}&token=${API_KEY}`;
+
+  try {
+    const data = await fetchWithRetry(url);
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    // Sort by date and get the next upcoming dividend
+    const sorted = data.sort((a, b) => new Date(a.exDate) - new Date(b.exDate));
+    const nextDividend = sorted[0];
+
+    const result = {
+      exDate: nextDividend.exDate,
+      payDate: nextDividend.payDate,
+      amount: nextDividend.amount,
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (error) {
+    console.error('Error fetching dividends:', error);
+    return null;
+  }
 }
 
 export async function searchSymbols(query) {
@@ -119,9 +169,10 @@ export async function searchSymbols(query) {
 }
 
 export async function getStockData(symbol) {
-  const [quote, profile] = await Promise.all([
+  const [quote, profile, dividend] = await Promise.all([
     getQuote(symbol),
     getCompanyProfile(symbol).catch(() => ({ name: symbol })),
+    getDividends(symbol).catch(() => null),
   ]);
 
   return {
@@ -135,5 +186,6 @@ export async function getStockData(symbol) {
     low: quote.l,
     open: quote.o,
     prevClose: quote.pc,
+    dividend,
   };
 }

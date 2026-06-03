@@ -1,6 +1,7 @@
 import os
 from flask import Flask, request, jsonify, abort
 from flask_cors import CORS
+from cachetools import LRUCache
 
 from database.db import init_db, get_db, close_db
 from models.user import User
@@ -16,8 +17,8 @@ CORS(app, origins=['http://localhost:3000'])
 # Initialize database on startup
 init_db()
 
-# In-memory session storage — keyed by secret token, not user_id
-sessions = {}
+# In-memory session storage — keyed by secret token, capped to prevent unbounded growth
+sessions: LRUCache = LRUCache(maxsize=1000)
 
 
 def require_auth():

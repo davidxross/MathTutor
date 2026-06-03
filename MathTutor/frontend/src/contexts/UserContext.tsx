@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, UserSettings } from '../types';
-import { getUser, createUser, updateSettings, getUsers } from '../utils/api';
+import { getUser, createUser, updateSettings, getUsers, setAuthToken } from '../utils/api';
 
 interface UserContextType {
   user: User | null;
@@ -35,12 +35,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const loadUser = async () => {
       const savedUserId = localStorage.getItem('mathTutorUserId');
-      if (savedUserId) {
+      const savedToken = localStorage.getItem('mathTutorToken');
+      if (savedUserId && savedToken) {
+        setAuthToken(savedToken);
         try {
           const userData = await getUser(parseInt(savedUserId, 10));
           setUser(userData);
         } catch (err) {
           localStorage.removeItem('mathTutorUserId');
+          localStorage.removeItem('mathTutorToken');
+          setAuthToken(null);
         }
       }
       await refreshUsers();
@@ -56,8 +60,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       const userData = await getUser(userId);
       setUser(userData);
       localStorage.setItem('mathTutorUserId', userId.toString());
+      if (userData.token) {
+        localStorage.setItem('mathTutorToken', userData.token);
+        setAuthToken(userData.token);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to login');
+      setError('Failed to log in. Please try again.');
       throw err;
     } finally {
       setIsLoading(false);
@@ -70,10 +78,14 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       const newUser = await createUser(name);
       setUser(newUser);
       localStorage.setItem('mathTutorUserId', newUser.id.toString());
+      if (newUser.token) {
+        localStorage.setItem('mathTutorToken', newUser.token);
+        setAuthToken(newUser.token);
+      }
       await refreshUsers();
       return newUser;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create user');
+      setError('Failed to create profile. Please try again.');
       throw err;
     }
   };
@@ -85,7 +97,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       const updatedUser = await updateSettings(user.id, settings);
       setUser(updatedUser);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update settings');
+      setError('Failed to update settings. Please try again.');
       throw err;
     }
   };
@@ -93,6 +105,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('mathTutorUserId');
+    localStorage.removeItem('mathTutorToken');
+    setAuthToken(null);
   };
 
   return (

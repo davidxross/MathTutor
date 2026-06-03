@@ -11,6 +11,7 @@ export interface User {
   name: string;
   created_at: string;
   settings: UserSettings;
+  token?: string;
 }
 
 // Problem types

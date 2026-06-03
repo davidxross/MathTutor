@@ -1,6 +1,6 @@
-from flask import Flask, request, jsonify
+import os
+from flask import Flask, request, jsonify, abort
 from flask_cors import CORS
-import json
 
 from database.db import init_db, get_db, close_db
 from models.user import User
@@ -11,19 +11,31 @@ from services.scoring import ScoringService
 from services.achievements import AchievementService, ACHIEVEMENTS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['http://localhost:3000'])
 
 # Initialize database on startup
 init_db()
 
-# In-memory session storage (in production, use Redis or similar)
+# In-memory session storage — keyed by secret token, not user_id
 sessions = {}
 
 
-def get_session(user_id: int) -> dict:
-    """Get or create a session for a user."""
-    if user_id not in sessions:
-        sessions[user_id] = {
+def require_auth():
+    """Validate X-User-Token header. Returns (token, user_id) or aborts 401."""
+    token = request.headers.get('X-User-Token', '').strip()
+    if not token:
+        abort(401, description="Authentication required")
+    user = User.get_by_token(token)
+    if not user:
+        abort(401, description="Invalid token")
+    return token, user.id
+
+
+def get_session(token: str, user_id: int) -> dict:
+    """Get or create a session keyed by auth token."""
+    if token not in sessions:
+        sessions[token] = {
+            "user_id": user_id,
             "scoring": ScoringService(),
             "current_problem": None,
             "attempts": 0,
@@ -34,48 +46,54 @@ def get_session(user_id: int) -> dict:
             "topics_practiced": [],
             "themes_used": []
         }
-    return sessions[user_id]
+    return sessions[token]
 
 
 # ============ User Endpoints ============
 
 @app.route('/api/user', methods=['POST'])
 def create_user():
-    """Create a new user."""
+    """Create a new user. Returns user object including token (acts as login)."""
     data = request.json or {}
     name = data.get('name', 'Student')
     settings = data.get('settings')
 
     user = User.create(name, settings)
-    return jsonify(user.to_dict()), 201
+    return jsonify(user.to_dict(include_token=True)), 201
 
 
 @app.route('/api/user/<int:user_id>', methods=['GET'])
 def get_user(user_id):
-    """Get user by ID."""
+    """Get user by ID and return their token (login endpoint — no prior auth needed)."""
     user = User.get_by_id(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
-    return jsonify(user.to_dict())
+    return jsonify(user.to_dict(include_token=True))
 
 
 @app.route('/api/users', methods=['GET'])
 def get_users():
-    """Get all users."""
+    """List all users for the login screen (no token returned)."""
     users = User.get_all()
-    return jsonify([u.to_dict() for u in users])
+    return jsonify([u.to_dict(include_token=False) for u in users])
 
 
 @app.route('/api/settings/<int:user_id>', methods=['PUT'])
 def update_settings(user_id):
-    """Update user settings."""
+    """Update user settings. Requires auth; user may only update their own settings."""
+    token, auth_user_id = require_auth()
+    if auth_user_id != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
     user = User.get_by_id(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
 
     data = request.json or {}
-    user.update_settings(data)
-    return jsonify(user.to_dict())
+    allowed = {'theme', 'difficulty', 'daily_goal', 'sound_enabled'}
+    filtered = {k: v for k, v in data.items() if k in allowed}
+    user.update_settings(filtered)
+    return jsonify(user.to_dict(include_token=False))
 
 
 # ============ Problem Endpoints ============
@@ -88,64 +106,51 @@ def get_problem():
         - topic: Topic category (number_sense, measurement, etc.)
         - difficulty: easy, medium, hard
         - theme: classic, stranger_things, puppy
-        - user_id: User ID for session tracking
     """
+    token, user_id = require_auth()
+
     topic = request.args.get('topic', 'number_sense')
     difficulty = request.args.get('difficulty', 'easy')
     theme_id = request.args.get('theme', 'classic')
-    user_id = request.args.get('user_id', type=int)
 
     try:
         generator = get_generator(topic)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    # Generate problem
     problem = generator.generate(difficulty=difficulty)
 
-    # Apply theme
     theme_engine = ThemeEngine(theme_id)
     themed_problem = theme_engine.apply_theme(problem)
 
-    # Store in session
-    if user_id:
-        session = get_session(user_id)
-        session['current_problem'] = themed_problem
-        session['attempts'] = 0
-        if topic not in session['topics_practiced']:
-            session['topics_practiced'].append(topic)
-        if theme_id not in session['themes_used']:
-            session['themes_used'].append(theme_id)
+    session = get_session(token, user_id)
+    session['current_problem'] = themed_problem
+    session['attempts'] = 0
+    if topic not in session['topics_practiced']:
+        session['topics_practiced'].append(topic)
+    if theme_id not in session['themes_used']:
+        session['themes_used'].append(theme_id)
 
     # Don't send the answer to the client
-    response = {
+    return jsonify({
         "question": themed_problem['question'],
         "difficulty": themed_problem['difficulty'],
         "topic": themed_problem['topic'],
         "problem_type": themed_problem['problem_type'],
         "theme": themed_problem['theme'],
         "theme_name": themed_problem['theme_name']
-    }
-
-    return jsonify(response)
+    })
 
 
 @app.route('/api/answer', methods=['POST'])
 def submit_answer():
-    """Submit an answer to the current problem.
+    """Submit an answer to the current problem."""
+    token, user_id = require_auth()
 
-    Body:
-        - user_id: User ID
-        - answer: User's answer
-    """
     data = request.json or {}
-    user_id = data.get('user_id')
     user_answer = str(data.get('answer', '')).strip()
 
-    if not user_id:
-        return jsonify({"error": "user_id required"}), 400
-
-    session = get_session(user_id)
+    session = get_session(token, user_id)
     problem = session.get('current_problem')
 
     if not problem:
@@ -154,20 +159,15 @@ def submit_answer():
     session['attempts'] += 1
     first_try = session['attempts'] == 1
 
-    # Check answer
     correct_answer = problem['answer']
 
-    # Handle answer comparison
     try:
-        # Try numeric comparison
         user_val = float(user_answer.replace(',', '').strip())
         correct_val = float(str(correct_answer).replace(',', '').strip())
         is_correct = abs(user_val - correct_val) < 0.01
     except (ValueError, TypeError):
-        # String comparison (for fractions, text answers, etc.)
         is_correct = user_answer.lower() == str(correct_answer).lower()
 
-    # Calculate points
     scoring = session['scoring']
     points_result = scoring.calculate_points(
         difficulty=problem['difficulty'],
@@ -175,7 +175,6 @@ def submit_answer():
         first_try=first_try
     )
 
-    # Update session stats
     if is_correct:
         session['session_problems'] += 1
         session['session_correct'] += 1
@@ -183,7 +182,6 @@ def submit_answer():
         if first_try:
             session['session_first_try'] += 1
 
-        # Update progress in database
         progress = Progress.get_or_create_today(user_id)
         progress.update(
             points=points_result['total_points'],
@@ -192,7 +190,6 @@ def submit_answer():
             topic=problem['topic']
         )
 
-        # Record problem history
         Progress.record_problem(
             user_id=user_id,
             problem_type=problem['problem_type'],
@@ -203,7 +200,6 @@ def submit_answer():
             points=points_result['total_points']
         )
 
-        # Check for achievements
         achievement_service = AchievementService(user_id)
         total_stats = Progress.get_total_stats(user_id)
         topic_stats = Progress.get_topic_stats(user_id)
@@ -226,7 +222,6 @@ def submit_answer():
 
         new_achievements = achievement_service.check_and_award(context)
 
-        # Clear current problem
         session['current_problem'] = None
 
         return jsonify({
@@ -237,7 +232,6 @@ def submit_answer():
             "new_achievements": new_achievements
         })
     else:
-        # Wrong answer
         Progress.record_problem(
             user_id=user_id,
             problem_type=problem['problem_type'],
@@ -266,22 +260,16 @@ def submit_answer():
 @app.route('/api/skip', methods=['POST'])
 def skip_problem():
     """Skip the current problem."""
-    data = request.json or {}
-    user_id = data.get('user_id')
+    token, user_id = require_auth()
 
-    if not user_id:
-        return jsonify({"error": "user_id required"}), 400
-
-    session = get_session(user_id)
+    session = get_session(token, user_id)
     problem = session.get('current_problem')
 
     if not problem:
         return jsonify({"error": "No active problem"}), 400
 
-    # Reset streak
     session['scoring'].reset_streak()
 
-    # Record skip
     Progress.record_problem(
         user_id=user_id,
         problem_type=problem['problem_type'],
@@ -307,6 +295,10 @@ def skip_problem():
 @app.route('/api/progress/<int:user_id>', methods=['GET'])
 def get_progress(user_id):
     """Get progress data for a user."""
+    token, auth_user_id = require_auth()
+    if auth_user_id != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
     days = request.args.get('days', 30, type=int)
 
     today = Progress.get_or_create_today(user_id)
@@ -318,8 +310,7 @@ def get_progress(user_id):
     daily_goal = user.settings.get('daily_goal', 10) if user else 10
     streak = Progress.get_streak(user_id, daily_goal)
 
-    # Get session data
-    session = get_session(user_id)
+    session = get_session(token, user_id)
 
     return jsonify({
         "today": today.to_dict(),
@@ -340,6 +331,10 @@ def get_progress(user_id):
 @app.route('/api/achievements/<int:user_id>', methods=['GET'])
 def get_achievements(user_id):
     """Get achievements for a user."""
+    _, auth_user_id = require_auth()
+    if auth_user_id != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
     service = AchievementService(user_id)
     all_achievements = service.get_all_achievements_with_status()
     earned = [a for a in all_achievements if a['earned']]
@@ -386,4 +381,5 @@ def get_difficulties():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    app.run(debug=debug, port=5001)

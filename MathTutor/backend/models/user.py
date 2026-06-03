@@ -1,13 +1,15 @@
 import json
+import secrets
 from database.db import get_db, close_db, dict_from_row
 
 class User:
     """User model for managing student profiles."""
 
-    def __init__(self, id=None, name=None, created_at=None, settings=None):
+    def __init__(self, id=None, name=None, created_at=None, settings=None, secret_token=None):
         self.id = id
         self.name = name
         self.created_at = created_at
+        self.secret_token = secret_token or ''
         self.settings = settings or {
             "theme": "classic",
             "difficulty": "easy",
@@ -30,9 +32,10 @@ class User:
         if settings:
             default_settings.update(settings)
 
+        token = secrets.token_hex(32)
         cursor.execute(
-            "INSERT INTO users (name, settings) VALUES (?, ?)",
-            (name, json.dumps(default_settings))
+            "INSERT INTO users (name, settings, secret_token) VALUES (?, ?, ?)",
+            (name, json.dumps(default_settings), token)
         )
         user_id = cursor.lastrowid
         conn.commit()
@@ -46,6 +49,23 @@ class User:
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        close_db(conn)
+
+        if row:
+            data = dict_from_row(row)
+            data['settings'] = json.loads(data['settings']) if data['settings'] else {}
+            return User(**data)
+        return None
+
+    @staticmethod
+    def get_by_token(token):
+        """Get user by secret token."""
+        if not token:
+            return None
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE secret_token = ?", (token,))
         row = cursor.fetchone()
         close_db(conn)
 
@@ -83,11 +103,14 @@ class User:
         conn.commit()
         close_db(conn)
 
-    def to_dict(self):
-        """Convert to dictionary."""
-        return {
+    def to_dict(self, include_token=False):
+        """Convert to dictionary. Include token only for login responses."""
+        d = {
             "id": self.id,
             "name": self.name,
             "created_at": self.created_at,
             "settings": self.settings
         }
+        if include_token:
+            d["token"] = self.secret_token
+        return d

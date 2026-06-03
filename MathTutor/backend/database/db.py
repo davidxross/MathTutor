@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import secrets
 from pathlib import Path
 
 DATABASE_PATH = Path(__file__).parent / "math_tutor.db"
@@ -26,7 +27,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            settings TEXT DEFAULT '{}'
+            settings TEXT DEFAULT '{}',
+            secret_token TEXT NOT NULL DEFAULT ''
         )
     ''')
 
@@ -72,6 +74,23 @@ def init_db():
     ''')
 
     conn.commit()
+
+    # Migration: add secret_token to existing databases that predate this column
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN secret_token TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
+
+    # Backfill tokens for any users that don't have one yet
+    cursor.execute("SELECT id FROM users WHERE secret_token = ''")
+    rows = cursor.fetchall()
+    for row in rows:
+        cursor.execute("UPDATE users SET secret_token = ? WHERE id = ?",
+                       (secrets.token_hex(32), row['id']))
+    if rows:
+        conn.commit()
+
     close_db(conn)
     print(f"Database initialized at {DATABASE_PATH}")
 

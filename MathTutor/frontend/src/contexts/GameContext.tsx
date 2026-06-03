@@ -40,15 +40,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setAnswerResult(null);
     setShowSolution(false);
     try {
-      const problem = await getProblem(
-        selectedTopic,
-        selectedDifficulty,
-        selectedTheme,
-        user.id
-      );
+      const problem = await getProblem(selectedTopic, selectedDifficulty, selectedTheme);
       setCurrentProblem(problem);
     } catch (err) {
-      console.error('Failed to fetch problem:', err);
+      // Silently fail — user sees the empty problem state
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +51,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const submitUserAnswer = useCallback(async (answer: string): Promise<AnswerResult> => {
     if (!user) throw new Error('No user');
-    const result = await submitAnswer(user.id, answer);
+    const result = await submitAnswer(answer);
     setAnswerResult(result);
 
     if (result.correct) {
@@ -75,7 +70,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const skip = useCallback(async () => {
     if (!user) return;
-    const result = await skipProblem(user.id);
+    const result = await skipProblem();
     setAnswerResult({
       correct: false,
       answer: result.answer,

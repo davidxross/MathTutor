@@ -9,15 +9,26 @@ import {
   Difficulty,
 } from '../types';
 
-const API_BASE = 'http://localhost:5001/api';
+const API_BASE = process.env.REACT_APP_API_BASE ?? 'http://localhost:5001/api';
+
+let authToken: string | null = null;
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+  if (authToken) {
+    headers['X-User-Token'] = authToken;
+  }
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -55,25 +66,23 @@ export async function updateSettings(userId: number, settings: Partial<User['set
 export async function getProblem(
   topic: string,
   difficulty: string,
-  theme: string,
-  userId?: number
+  theme: string
 ): Promise<Problem> {
   const params = new URLSearchParams({ topic, difficulty, theme });
-  if (userId) params.append('user_id', userId.toString());
   return fetchApi<Problem>(`/problem?${params}`);
 }
 
-export async function submitAnswer(userId: number, answer: string): Promise<AnswerResult> {
+export async function submitAnswer(answer: string): Promise<AnswerResult> {
   return fetchApi<AnswerResult>('/answer', {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId, answer }),
+    body: JSON.stringify({ answer }),
   });
 }
 
-export async function skipProblem(userId: number): Promise<{ skipped: boolean; solution: string[]; answer: string }> {
+export async function skipProblem(): Promise<{ skipped: boolean; solution: string[]; answer: string }> {
   return fetchApi('/skip', {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId }),
+    body: JSON.stringify({}),
   });
 }
 

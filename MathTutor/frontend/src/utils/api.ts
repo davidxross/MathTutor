@@ -62,12 +62,19 @@ export async function updateSettings(userId: number, settings: Partial<User['set
   });
 }
 
+const VALID_TOPICS = new Set(['number_sense', 'measurement', 'geometry', 'patterning', 'data_management']);
+const VALID_DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
+const VALID_THEMES = new Set(['classic', 'stranger_things', 'puppy']);
+
 // Problem API
 export async function getProblem(
   topic: string,
   difficulty: string,
   theme: string
 ): Promise<Problem> {
+  if (!VALID_TOPICS.has(topic)) throw new Error(`Invalid topic: ${topic}`);
+  if (!VALID_DIFFICULTIES.has(difficulty)) throw new Error(`Invalid difficulty: ${difficulty}`);
+  if (!VALID_THEMES.has(theme)) throw new Error(`Invalid theme: ${theme}`);
   const params = new URLSearchParams({ topic, difficulty, theme });
   return fetchApi<Problem>(`/problem?${params}`);
 }
